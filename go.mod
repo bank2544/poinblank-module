@@ -1,6 +1,6 @@
 module github.com/lolyhexey/poinblank-module
 
-go 1.23
+go 1.21.5
 
 toolchain go1.24.2
 
