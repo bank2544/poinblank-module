@@ -1,2 +1,3 @@
 # ไฟล์ที่ไม่อยากให้ Git track
 git-update.cmd
+.gitignore
