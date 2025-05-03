@@ -1,4 +1,4 @@
-module github.com/bank2544/poinblank-module
+module github.com/lolyhexey/poinblank-module
 
 go 1.21.5
 
