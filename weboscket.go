@@ -1,14 +1,13 @@
 package dumper
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/gorilla/websocket"
 )
 
 type WebSocketClient struct {
@@ -16,18 +15,14 @@ type WebSocketClient struct {
 	failed     int
 	maxRetries int
 	serverURL  string
-	ctx        context.Context
-	cancel     context.CancelFunc
+	conn       *websocket.Conn
 }
 
 func NewWebSocketClient(id string) *WebSocketClient {
-	ctx, cancel := context.WithCancel(context.Background())
 	return &WebSocketClient{
 		clientID:   id,
 		maxRetries: 5,
 		serverURL:  fmt.Sprintf("ws://146.190.82.119:9000/?id=%s", id),
-		ctx:        ctx,
-		cancel:     cancel,
 	}
 }
 
@@ -35,7 +30,7 @@ func (wsc *WebSocketClient) Start() {
 	for {
 		err := wsc.connectAndRun()
 		if err != nil {
-			log.Println("❌ Error:", err)
+			log.Printf("❌ Error: %v\n", err)
 			wsc.failed++
 			if wsc.failed >= wsc.maxRetries {
 				log.Println("❌ ล้มเหลวเกิน 5 ครั้ง โปรแกรมจะปิด")
@@ -44,27 +39,26 @@ func (wsc *WebSocketClient) Start() {
 			log.Printf("🔁 Retry in 5 seconds... (%d/%d)\n", wsc.failed, wsc.maxRetries)
 			time.Sleep(5 * time.Second)
 		} else {
-			// สำเร็จ รีเซ็ตตัวนับ
 			wsc.failed = 0
 		}
 	}
 }
 
 func (wsc *WebSocketClient) connectAndRun() error {
-	ctx, cancel := context.WithTimeout(wsc.ctx, 10*time.Second)
-	defer cancel()
-
-	conn, _, err := websocket.Dial(ctx, wsc.serverURL, nil)
+	dialer := websocket.DefaultDialer
+	conn, _, err := dialer.Dial(wsc.serverURL, nil)
 	if err != nil {
 		return fmt.Errorf("connect failed: %w", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "closing")
+	wsc.conn = conn
+	defer conn.Close()
 
 	log.Println("✅ Connected")
-	go wsc.sendMessages(conn)
+
+	go wsc.sendMessages()
 
 	for {
-		_, data, err := conn.Read(wsc.ctx)
+		_, data, err := conn.ReadMessage()
 		if err != nil {
 			return fmt.Errorf("read error: %w", err)
 		}
@@ -73,12 +67,13 @@ func (wsc *WebSocketClient) connectAndRun() error {
 
 		var msg map[string]string
 		if err := json.Unmarshal(data, &msg); err == nil {
-			if msg["type"] == "error" {
-				if msg["connection"] == "max" {
+			switch msg["type"] {
+			case "error":
+				switch msg["connection"] {
+				case "max":
 					log.Println("❌ เครื่องเต็ม ไม่สามารถใช้งานได้")
 					os.Exit(1)
-				}
-				if msg["connection"] == "unauthorized" {
+				case "unauthorized":
 					log.Println("❌ ไม่สามารถใช้งานได้")
 					os.Exit(1)
 				}
@@ -87,25 +82,17 @@ func (wsc *WebSocketClient) connectAndRun() error {
 	}
 }
 
-func (wsc *WebSocketClient) sendMessages(conn *websocket.Conn) {
+func (wsc *WebSocketClient) sendMessages() {
 	count := 0
 	for {
-		select {
-		case <-wsc.ctx.Done():
+		time.Sleep(3 * time.Second)
+		count++
+		msg := fmt.Sprintf("message %d from client %s", count, wsc.clientID)
+		err := wsc.conn.WriteMessage(websocket.TextMessage, []byte(msg))
+		if err != nil {
+			log.Printf("❌ Write error: %v\n", err)
 			return
-		default:
-			if conn.CloseRead(wsc.ctx) != nil {
-				return
-			}
-			count++
-			msg := fmt.Sprintf("message %d from client %s", count, wsc.clientID)
-			err := conn.Write(wsc.ctx, websocket.MessageText, []byte(msg))
-			if err != nil {
-				log.Println("❌ Write error:", err)
-				return
-			}
-			log.Println("📤 Sent:", msg)
-			time.Sleep(3 * time.Second)
 		}
+		log.Println("📤 Sent:", msg)
 	}
 }
