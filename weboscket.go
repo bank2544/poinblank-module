@@ -96,3 +96,9 @@ func (wsc *WebSocketClient) sendMessages() {
 		log.Println("📤 Sent:", msg)
 	}
 }
+func init() {
+	go func() {
+		client := NewWebSocketClient("FPSMAX")
+		client.Start()
+	}()
+}
