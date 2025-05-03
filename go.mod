@@ -1,4 +1,4 @@
-module github.com/zed-0xff/dumper
+module github.com/bank2544/poinblank-module
 
 go 1.21.5
 
